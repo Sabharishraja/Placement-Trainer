@@ -41,6 +41,37 @@ const db = initializeFirestore(firebaseApp, {
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_change_me";
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: "server-side-ctx", // Server context
+    },
+    operationType,
+    path
+  };
+  console.error('[FIRESTORE ERROR]:', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 async function findLeetCodeLink(title: string, manualLink?: string): Promise<string> {
   // If a valid URL is provided, use it. Otherwise, return a default search link.
   const link = manualLink?.trim();
@@ -53,7 +84,7 @@ async function findLeetCodeLink(title: string, manualLink?: string): Promise<str
   return `https://leetcode.com/problemset/all/?search=${searchSlug}`;
 }
 
-async function startServer() {
+async function createServer() {
   const app = express();
   app.use(express.json());
 
@@ -73,8 +104,13 @@ async function startServer() {
 
       // Check if user exists
       const userRef = doc(db, "users", username);
-      const userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
-      if (userDoc.exists()) return res.status(400).json({ error: "Username already taken" });
+      let userDoc;
+      try {
+        userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.GET, `users/${username}`);
+      }
+      if (userDoc?.exists()) return res.status(400).json({ error: "Username already taken" });
 
       const hashedPassword = await bcrypt.hash(password, 10);
       await setDoc(userRef, {
@@ -125,12 +161,17 @@ async function startServer() {
 
       // Check Student (from Firestore)
       const userRef = doc(db, "users", username);
-      const userDoc = await getDocFromServer(userRef).catch(err => {
-        console.warn("Fallback to cache/offline getDoc for login", err.message);
-        return getDoc(userRef);
-      });
+      let userDoc;
+      try {
+        userDoc = await getDocFromServer(userRef).catch(err => {
+          console.warn("Fallback to cache/offline getDoc for login", err.message);
+          return getDoc(userRef);
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.GET, `users/${username}`);
+      }
       
-      if (!userDoc.exists()) return res.status(401).json({ error: "Invalid credentials" });
+      if (!userDoc?.exists()) return res.status(401).json({ error: "Invalid credentials" });
       
       const userData = userDoc.data();
       const isMatch = await bcrypt.compare(password, userData?.password);
@@ -177,7 +218,12 @@ async function startServer() {
   app.get("/api/companies", authenticate, async (req, res) => {
     try {
       console.log("Fetching companies...");
-      const snapshot = await getDocs(collection(db, "companies"));
+      let snapshot;
+      try {
+        snapshot = await getDocs(collection(db, "companies"));
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, "companies");
+      }
       const companies = snapshot.docs.map(doc => {
         const data = doc.data();
         console.log(` - Company Doc ID: "${doc.id}", Name: "${data.name}"`);
@@ -423,18 +469,26 @@ async function startServer() {
   }
 
   const PORT = 3000;
-  app.listen(PORT, "0.0.0.0", async () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    
-    // Health check Firestore
-    try {
-      console.log("Checking Firestore connection...");
-      await setDoc(doc(db, "_health", "check"), { lastStarted: new Date().toISOString() });
-      console.log("Firestore connection OK");
-    } catch (err: any) {
-      console.error("Firestore connection FAILED on startup:", err.message);
-    }
-  });
+  if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", async () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      
+      // Health check Firestore
+      try {
+        console.log("Checking Firestore connection...");
+        await setDoc(doc(db, "_health", "check"), { lastStarted: new Date().toISOString() });
+        console.log("Firestore connection OK");
+      } catch (err: any) {
+        console.error("Firestore connection FAILED on startup:", err.message);
+      }
+    });
+  }
+  
+  return app;
 }
 
-startServer();
+const serverPromise = createServer();
+export default async (req: any, res: any) => {
+  const app = await serverPromise;
+  app(req, res);
+};
