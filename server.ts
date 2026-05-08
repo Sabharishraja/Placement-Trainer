@@ -8,11 +8,13 @@ import bcrypt from "bcryptjs";
 import { initializeApp } from "firebase/app";
 import { 
   getFirestore, 
+  initializeFirestore,
   collection, 
   getDocs, 
   addDoc, 
   doc, 
   getDoc, 
+  getDocFromServer,
   setDoc, 
   updateDoc, 
   deleteDoc,
@@ -33,7 +35,9 @@ const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json
 const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
 
 const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
+const db = initializeFirestore(firebaseApp, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_change_me";
 
@@ -69,7 +73,7 @@ async function startServer() {
 
       // Check if user exists
       const userRef = doc(db, "users", username);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
       if (userDoc.exists()) return res.status(400).json({ error: "Username already taken" });
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -121,7 +125,10 @@ async function startServer() {
 
       // Check Student (from Firestore)
       const userRef = doc(db, "users", username);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await getDocFromServer(userRef).catch(err => {
+        console.warn("Fallback to cache/offline getDoc for login", err.message);
+        return getDoc(userRef);
+      });
       
       if (!userDoc.exists()) return res.status(401).json({ error: "Invalid credentials" });
       
@@ -171,8 +178,12 @@ async function startServer() {
     try {
       console.log("Fetching companies...");
       const snapshot = await getDocs(collection(db, "companies"));
-      const companies = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      console.log(`Found ${companies.length} companies`);
+      const companies = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log(` - Company Doc ID: "${doc.id}", Name: "${data.name}"`);
+        return { id: doc.id, ...data };
+      });
+      console.log(`Successfully fetched ${companies.length} companies`);
       res.json(companies);
     } catch (error) {
       console.error("Fetch companies error:", error);
@@ -202,14 +213,19 @@ async function startServer() {
       const id = req.params.id?.trim();
       if (!id) return res.status(400).json({ error: "Company ID is required" });
       
-      console.log(`[ADMIN] Request to delete company ID: "${id}"`);
+      console.log(`[ADMIN] LOG: Final ID for deletion after trim: "${id}"`);
       
       // Check if company exists first
       const companyRef = doc(db, "companies", id);
-      const companyDoc = await getDoc(companyRef);
+      console.log(`[ADMIN] Checking existence of path: companies/${id}`);
+      const companyDoc = await getDocFromServer(companyRef).catch(err => {
+        console.error(`[ADMIN] getDocFromServer failed for ${id}:`, err.message);
+        return getDoc(companyRef);
+      });
+      
       if (!companyDoc.exists()) {
-        console.warn(`[ADMIN] Delete failed: Company ${id} does not exist in Firestore.`);
-        return res.status(404).json({ error: "Company not found" });
+        console.warn(`[ADMIN] Delete failed: Company Doc "${id}" NOT FOUND in cache or server.`);
+        return res.status(404).json({ error: `Company with ID ${id} not found` });
       }
 
       const q = query(collection(db, "questions"), where("companyId", "==", id));
@@ -278,7 +294,7 @@ async function startServer() {
   app.get("/api/user/progress", authenticate, async (req: any, res) => {
     try {
       const userRef = doc(db, "users", req.user.username);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
       if (!userDoc.exists()) return res.status(404).json({ error: "User not found" });
       const data = userDoc.data();
       res.json({
@@ -294,7 +310,7 @@ async function startServer() {
     try {
       const { questionId, status } = req.body; // status: 'solved', 'revision', 'reset'
       const userRef = doc(db, "users", req.user.username);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
       const userData = userDoc.data();
 
       let solved = new Set((userData?.solvedQuestions as string[]) || []);
@@ -352,7 +368,7 @@ async function startServer() {
       const totalQuestions = questionsSnapshot.size;
       
       const userRef = doc(db, "users", req.user.username);
-      const userDoc = await getDoc(userRef);
+      const userDoc = await getDocFromServer(userRef).catch(() => getDoc(userRef));
       
       const solved = (userDoc.exists() ? (userDoc.data()?.solvedQuestions as string[]) : [])?.length || 0;
       const revision = (userDoc.exists() ? (userDoc.data()?.revisionNeeded as string[]) : [])?.length || 0;
