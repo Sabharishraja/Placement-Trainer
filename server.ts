@@ -23,9 +23,7 @@ import {
 } from "firebase/firestore";
 import fs from "fs";
 
-import { GoogleGenAI } from "@google/genai";
-
-dotenv.config();
+// dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -38,31 +36,17 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
 
 async function findLeetCodeLink(title: string, manualLink?: string): Promise<string> {
-  if (manualLink && manualLink.trim().length > 10 && manualLink.startsWith("http")) {
-    return manualLink.trim();
+  // If a valid URL is provided, use it. Otherwise, return a default search link.
+  const link = manualLink?.trim();
+  if (link && link.startsWith("http")) {
+    return link;
   }
   
-  if (!genAI) return "https://leetcode.com/problemset/all/";
-  
-  try {
-    const prompt = `Return ONLY the LeetCode problem URL for the following problem title: "${title}". 
-    Example output format: https://leetcode.com/problems/two-sum/
-    If you're not sure, or if it's not a standard LeetCode problem, return exactly: https://leetcode.com/problemset/all/`;
-    
-    const response = await genAI.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: prompt,
-    });
-    const text = response.text.trim();
-    
-    return text.startsWith("http") ? text : "https://leetcode.com/problemset/all/";
-  } catch (error) {
-    console.error("Gemini link finding failed:", error);
-    return "https://leetcode.com/problemset/all/";
-  }
+  // Default to a search link if no link provided
+  const searchSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `https://leetcode.com/problemset/all/?search=${searchSlug}`;
 }
 
 async function startServer() {
@@ -216,25 +200,33 @@ async function startServer() {
   app.delete("/api/companies/:id", authenticate, adminOnly, async (req, res) => {
     try {
       const { id } = req.params;
-      console.log(`[ADMIN] Request to delete company ID: ${id}`);
+      if (!id) return res.status(400).json({ error: "Company ID is required" });
       
+      console.log(`[ADMIN] Starting full deletion for company ID: ${id}`);
+      
+      // Check if company exists first
+      const companyRef = doc(db, "companies", id);
+      const companyDoc = await getDoc(companyRef);
+      if (!companyDoc.exists()) {
+        console.warn(`[ADMIN] Delete failed: Company ${id} does not exist in Firestore.`);
+        return res.status(404).json({ error: "Company not found" });
+      }
+
       const q = query(collection(db, "questions"), where("companyId", "==", id));
       const snapshot = await getDocs(q);
-      console.log(`[ADMIN] Found ${snapshot.size} questions linked to company ${id}`);
+      console.log(`[ADMIN] Found ${snapshot.size} questions to cascade delete.`);
       
-      const deletePromises = snapshot.docs.map(d => {
-        return deleteDoc(doc(db, "questions", d.id));
-      });
+      const deletePromises = snapshot.docs.map(d => deleteDoc(doc(db, "questions", d.id)));
       await Promise.all(deletePromises);
 
-      console.log(`[ADMIN] Associated questions deleted. Now deleting company doc...`);
-      await deleteDoc(doc(db, "companies", id));
-      console.log(`[ADMIN] Company ${id} successfully removed from Firestore.`);
+      console.log(`[ADMIN] Deleting company document...`);
+      await deleteDoc(companyRef);
+      console.log(`[ADMIN] SUCCESS: Company ${id} and all related questions deleted.`);
       
       res.json({ success: true });
     } catch (error: any) {
       console.error("[ADMIN] CRITICAL ERROR during company deletion:", error);
-      res.status(500).json({ error: `Server failed to delete company: ${error.message}` });
+      res.status(500).json({ error: `Server error: ${error.message}` });
     }
   });
 

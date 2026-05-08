@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, Building2, BookOpen, Loader2, Globe, ShieldCheck, Upload, FileText, Users, Mail, Phone, Flame, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
-import { GoogleGenAI } from "@google/genai";
 import Papa from "papaparse";
 
 interface Company {
@@ -356,10 +355,10 @@ export default function AdminPanel({ user }: { user: { token: string } }) {
                     "border-slate-200 hover:bg-green-50 hover:border-green-300 cursor-pointer"
                   )}
                 >
-                  {importing ? (
+                      {importing ? (
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="animate-spin text-green-600" size={32} />
-                      <span className="font-bold text-slate-600">Finding links & importing...</span>
+                      <span className="font-bold text-slate-600">Importing questions...</span>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3 text-center">
@@ -370,7 +369,7 @@ export default function AdminPanel({ user }: { user: { token: string } }) {
                         ) : (
                           <>
                             <p className="font-bold text-slate-700">Click to Upload CSV</p>
-                            <p className="text-sm text-slate-500 mt-1">Links will be auto-generated</p>
+                            <p className="text-sm text-slate-500 mt-1">Requires standard headers</p>
                           </>
                         )}
                       </div>
