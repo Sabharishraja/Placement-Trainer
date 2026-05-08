@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if true;
+    }
+
+    // Common Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // User Progress Rules
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin(); // Only admin can list all users
+      
+      function isValidUser(data) {
+        return data.username is string && data.username.size() <= 50 &&
+               data.role in ['student', 'admin'] &&
+               (data.solvedQuestions == null || data.solvedQuestions is list) &&
+               (data.revisionNeeded == null || data.revisionNeeded is list);
+      }
+
+      allow create: if isSignedIn() && isValidUser(request.resource.data) && request.resource.data.role == 'student';
+      
+      allow update: if isOwner(userId) && 
+                      isValidUser(request.resource.data) &&
+                      request.resource.data.role == request.resource.data.role && // Immutable role
+                      request.resource.data.username == resource.data.username && // Immutable username
+                      request.resource.data.diff(resource.data).affectedKeys().hasAny(['solvedQuestions', 'revisionNeeded']);
+    }
+
+    // Companies Rules
+    match /companies/{companyId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Questions Rules
+    match /questions/{questionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    // Admins metadata (Internal)
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId);
+      allow write: if false; // Only manageable via Firebase Admin SDK
+    }
+  }
+}

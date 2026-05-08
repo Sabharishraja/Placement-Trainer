@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Student or Admin user",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "email": { "type": "string" },
+        "mobile": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "solvedQuestions": { "type": "array", "items": { "type": "string" } },
+        "revisionNeeded": { "type": "array", "items": { "type": "string" } },
+        "streak": { "type": "number" },
+        "lastSolvedDate": { "type": "string" },
+        "lockInEnabled": { "type": "boolean" },
+        "lockInTime": { "type": "string" }
+      },
+      "required": ["username", "password", "role"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Company modules for coding questions",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Question": {
+      "title": "Question",
+      "description": "Coding question details",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "title": { "type": "string" },
+        "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"] },
+        "topic": { "type": "string" },
+        "leetcodeLink": { "type": "string" }
+      },
+      "required": ["companyId", "title", "difficulty", "topic"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Collection of students"
+    },
+    "companies": {
+      "schema": "Company",
+      "description": "Collection of companies"
+    },
+    "questions": {
+      "schema": "Question",
+      "description": "Collection of questions"
+    }
+  }
+}
