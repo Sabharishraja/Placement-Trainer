@@ -23,7 +23,7 @@ import {
 } from "firebase/firestore";
 import fs from "fs";
 
-// dotenv.config();
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,7 +35,7 @@ const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
+const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_change_me";
 
 async function findLeetCodeLink(title: string, manualLink?: string): Promise<string> {
   // If a valid URL is provided, use it. Otherwise, return a default search link.
@@ -199,10 +199,10 @@ async function startServer() {
 
   app.delete("/api/companies/:id", authenticate, adminOnly, async (req, res) => {
     try {
-      const { id } = req.params;
+      const id = req.params.id?.trim();
       if (!id) return res.status(400).json({ error: "Company ID is required" });
       
-      console.log(`[ADMIN] Starting full deletion for company ID: ${id}`);
+      console.log(`[ADMIN] Request to delete company ID: "${id}"`);
       
       // Check if company exists first
       const companyRef = doc(db, "companies", id);

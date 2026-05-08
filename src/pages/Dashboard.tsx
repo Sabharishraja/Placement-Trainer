@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Building2, CheckCircle, Clock, BookOpen, ChevronRight, Trophy, BarChart3, Lock } from "lucide-react";
+import { Building2, CheckCircle, Clock, BookOpen, ChevronRight, Trophy, BarChart3 } from "lucide-react";
 import { motion } from "motion/react";
 
 interface Stats {
